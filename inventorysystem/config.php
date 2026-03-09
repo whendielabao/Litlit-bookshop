@@ -59,6 +59,75 @@ function createTablesIfNotExist($conn) {
             $conn->query("ALTER TABLE `Users` ADD COLUMN `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
         }
         
+        // Add role column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Users` LIKE 'role'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Users` ADD COLUMN `role` ENUM('admin','clerk') NOT NULL DEFAULT 'clerk'");
+            // Make first user an admin
+            $conn->query("UPDATE `Users` SET `role` = 'admin' WHERE `users_id` = (SELECT min_id FROM (SELECT MIN(users_id) as min_id FROM `Users`) t)");
+        }
+        
+        // Add book_cover column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'book_cover'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `book_cover` VARCHAR(500) DEFAULT NULL");
+        }
+        
+        // Add author_photo column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'author_photo'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `author_photo` VARCHAR(500) DEFAULT NULL");
+        }
+        
+        // Add added_by column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'added_by'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `added_by` INTEGER DEFAULT NULL");
+        }
+        
+        // Add added_at column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'added_at'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `added_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        }
+        
+        // Add isbn column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'isbn'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `isbn` VARCHAR(20) DEFAULT NULL");
+        }
+        
+        // Add description column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'description'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `description` TEXT DEFAULT NULL");
+        }
+        
+        // Add author_bio column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'author_bio'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `author_bio` TEXT DEFAULT NULL");
+        }
+        
+        // Create SoldHistory table if it doesn't exist
+        $conn->query("CREATE TABLE IF NOT EXISTS `SoldHistory` (
+            `sold_id` INTEGER NOT NULL AUTO_INCREMENT,
+            `book_id` INTEGER NOT NULL,
+            `quantity` INTEGER NOT NULL,
+            `price_at_sale` DECIMAL(10,2) NOT NULL,
+            `sold_by` INTEGER DEFAULT NULL,
+            `sold_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT `PK_SoldHistory` PRIMARY KEY (`sold_id`)
+        )");
+
+        // Ensure default admin account exists
+        $adminHash = '$2y$10$bqDrGu3HyMsXWAqoCpYcrumDaaplDkK0Ff5VDQ4XtUR5Umsv.9lHS';
+        $conn->query("INSERT IGNORE INTO `Users` (name, email, password, role)
+            SELECT 'Admin','admin@bookshop.com','$adminHash','admin'
+            FROM DUAL WHERE NOT EXISTS (
+                SELECT 1 FROM `Users` WHERE email='admin@bookshop.com'
+            )");
+
         return; // Tables already exist
     }
     
@@ -68,6 +137,7 @@ function createTablesIfNotExist($conn) {
         `name` VARCHAR(100),
         `email` VARCHAR(100) UNIQUE,
         `password` VARCHAR(255),
+        `role` ENUM('admin','clerk') NOT NULL DEFAULT 'clerk',
         `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT `PK_Users` PRIMARY KEY (`users_id`)
     )");
@@ -99,13 +169,20 @@ function createTablesIfNotExist($conn) {
     // Create Books table
     $conn->query("CREATE TABLE IF NOT EXISTS `Books` (
         `book_id` INTEGER NOT NULL AUTO_INCREMENT,
+        `isbn` VARCHAR(20) DEFAULT NULL,
         `title` VARCHAR(255),
         `author` VARCHAR(255),
+        `description` TEXT DEFAULT NULL,
+        `author_bio` TEXT DEFAULT NULL,
         `price` DECIMAL(10,2),
         `quantity` INTEGER DEFAULT 0,
         `category_id` INTEGER NOT NULL,
         `publisher` VARCHAR(40),
         `sales_id` INTEGER,
+        `book_cover` VARCHAR(500) DEFAULT NULL,
+        `author_photo` VARCHAR(500) DEFAULT NULL,
+        `added_by` INTEGER DEFAULT NULL,
+        `added_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT `PK_Books` PRIMARY KEY (`book_id`)
     )");
     
@@ -116,6 +193,17 @@ function createTablesIfNotExist($conn) {
         `publisher` VARCHAR(40) NOT NULL,
         `category_id` INTEGER NOT NULL,
         CONSTRAINT `PK_Sales item` PRIMARY KEY (`sale_id`)
+    )");
+
+    // Create SoldHistory table
+    $conn->query("CREATE TABLE IF NOT EXISTS `SoldHistory` (
+        `sold_id` INTEGER NOT NULL AUTO_INCREMENT,
+        `book_id` INTEGER NOT NULL,
+        `quantity` INTEGER NOT NULL,
+        `price_at_sale` DECIMAL(10,2) NOT NULL,
+        `sold_by` INTEGER DEFAULT NULL,
+        `sold_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT `PK_SoldHistory` PRIMARY KEY (`sold_id`)
     )");
     
     // Add foreign key constraints (ignore if they already exist)
@@ -130,6 +218,11 @@ function createTablesIfNotExist($conn) {
     
     $conn->query("ALTER TABLE `Books` ADD CONSTRAINT `Sales_Books` 
         FOREIGN KEY (`sales_id`) REFERENCES `Sales` (`sales_id`)");
+
+    // Seed default admin account
+    $adminHash = '$2y$10$bqDrGu3HyMsXWAqoCpYcrumDaaplDkK0Ff5VDQ4XtUR5Umsv.9lHS';
+    $conn->query("INSERT IGNORE INTO `Users` (name, email, password, role)
+        VALUES ('Admin','admin@bookshop.com','$adminHash','admin')");
 }
 
 // Close connection
