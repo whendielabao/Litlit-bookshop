@@ -8,7 +8,7 @@ requireLogin();
 $conn = getDBConnection();
 
 // Fetch all books with related info
-$sql = "SELECT b.book_id, b.isbn, b.title, b.author, b.price, b.quantity,
+$sql = "SELECT b.book_id, b.book_serial, b.isbn, b.title, b.author, b.price, b.quantity,
         b.book_cover, b.author_photo, b.added_at, b.description, b.author_bio,
         b.category_id, b.publisher,
         c.name  AS category_name,
@@ -48,12 +48,16 @@ function imgSrc($val) {
     return 'uploads/'.$val;
 }
 
+  $pageContainerClass = 'container-wide';
 include 'includes/header.php';
 ?>
 
 <?php
 // Count per category for chips
 $catCounts = [];
+foreach ($categories as $category) {
+  $catCounts[$category['name']] = 0;
+}
 foreach ($books as $b) {
     $cn = $b['category_name'] ?? 'Uncategorised';
     $catCounts[$cn] = ($catCounts[$cn] ?? 0) + 1;
@@ -99,6 +103,7 @@ arsort($catCounts);
   <table>
     <thead>
       <tr>
+        <th>Book Serial</th>
         <th>Cover</th>
         <th>Title / ISBN</th>
         <th>Author</th>
@@ -119,8 +124,10 @@ arsort($catCounts);
         $qty = (int)$b['quantity'];
         $qtyClass = $qty <= 0 ? 'low' : ($qty >= 10 ? 'high' : '');
         $cat = $b['category_name'] ?? 'Uncategorised';
+        $bookSerial = $b['book_serial'] ?: buildSerialNumber('BK', (int)$b['book_id']);
       ?>
       <tr data-category="<?= htmlspecialchars($cat) ?>" data-search="<?= htmlspecialchars(strtolower($b['title'].' '.$b['author'].' '.($b['isbn']??''))) ?>">
+        <td><span class="text-muted" style="white-space:nowrap;"><?= htmlspecialchars($bookSerial) ?></span></td>
         <td class="td-center">
           <?php if ($coverSrc): ?>
             <img src="<?= htmlspecialchars($coverSrc) ?>" alt="cover" class="thumb-book">
@@ -147,7 +154,8 @@ arsort($catCounts);
         <td>
           <div class="table-actions">
             <button class="btn btn-ghost btn-sm" onclick="openEditModal(<?= htmlspecialchars(json_encode($b),ENT_QUOTES) ?>)">✏️ Edit</button>
-            <button class="btn btn-sold btn-sm" onclick="openSellModal(<?= (int)$b['book_id'] ?>, <?= htmlspecialchars(json_encode($b['title']),ENT_QUOTES) ?>, <?= (int)$b['quantity'] ?>, <?= (float)$b['price'] ?>)">💰 Sold</button>
+            <button class="btn btn-ghost btn-sm" onclick="openStockModal(<?= (int)$b['book_id'] ?>, <?= htmlspecialchars(json_encode($b['title']),ENT_QUOTES) ?>, <?= (int)$b['quantity'] ?>, <?= htmlspecialchars(json_encode($bookSerial),ENT_QUOTES) ?>)">📦 Stock</button>
+            <button class="btn btn-sold btn-sm" onclick="openSellModal(<?= (int)$b['book_id'] ?>, <?= htmlspecialchars(json_encode($b['title']),ENT_QUOTES) ?>, <?= (int)$b['quantity'] ?>, <?= (float)$b['price'] ?>, <?= htmlspecialchars(json_encode($bookSerial),ENT_QUOTES) ?>)">💰 Sold</button>
             <a href="sold_history.php?book_id=<?= (int)$b['book_id'] ?>" class="btn btn-ghost btn-sm" title="View sold history for this book">📋 History</a>
             <?php if (isAdmin()): ?>
             <button class="btn btn-danger btn-sm" onclick="deleteBook(<?= (int)$b['book_id'] ?>, <?= htmlspecialchars(json_encode($b['title']),ENT_QUOTES) ?>)">🗑️ Delete</button>
@@ -162,6 +170,56 @@ arsort($catCounts);
 
 <?php endif; ?>
 
+<!-- ── Stock Modal ── -->
+<div class="modal-overlay" id="stock_modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <span class="modal-title">Stock Action</span>
+      <button class="modal-close" onclick="closeStockModal()" type="button">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-success" id="stock_success" style="display:none;"></div>
+      <div class="alert alert-error" id="stock_error" style="display:none;"></div>
+
+      <p style="font-size:.85rem;margin-bottom:1rem;">
+        <strong id="stock_book_title"></strong><br>
+        <span class="text-muted">Book Serial: <span id="stock_book_serial"></span></span>
+        &nbsp;·&nbsp;
+        <span class="text-muted">Current Stock: <span id="stock_book_qty"></span></span>
+      </p>
+
+      <form id="stock_form">
+        <input type="hidden" name="book_id" id="stock_book_id">
+        <div class="form-group">
+          <label>Action <span class="req">*</span></label>
+          <select name="action_type" id="stock_action_type" required>
+            <option value="stock_in">Stock In</option>
+            <option value="stock_out">Stock Out</option>
+            <option value="restock">Restock</option>
+            <option value="pull_out">Pull Out</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Quantity <span class="req">*</span></label>
+          <input type="number" name="quantity" id="stock_quantity" min="1" value="1" required>
+        </div>
+        <div class="form-group">
+          <label>Notes <span class="hint-text" style="text-transform:none">(optional)</span></label>
+          <textarea name="notes" id="stock_notes" rows="2" placeholder="Reason or reference"></textarea>
+        </div>
+        <div class="form-group" id="stock_damage_wrap" style="display:none;">
+          <label>Remarks for Damages <span class="req">*</span></label>
+          <textarea name="damage_remarks" id="stock_damage_remarks" rows="2" placeholder="Describe damage details"></textarea>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeStockModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitStockAction()">Apply</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Sell Modal ── -->
 <div class="modal-overlay" id="sell_modal">
   <div class="modal" style="max-width:420px;">
@@ -174,6 +232,8 @@ arsort($catCounts);
       <div class="alert alert-error" id="sell_error" style="display:none;"></div>
       <p style="font-size:.85rem;margin-bottom:1rem;">
         <strong id="sell_book_title"></strong><br>
+        <span class="text-muted">Book Serial: <span id="sell_book_serial"></span></span>
+        &nbsp;·&nbsp;
         <span class="text-muted">Price: <span class="price-tag" id="sell_book_price"></span></span>
         &nbsp;·&nbsp;
         <span class="text-muted">Stock: <span id="sell_book_stock"></span></span>
@@ -412,10 +472,75 @@ async function submitEdit() {
 })();
 <?php endif; ?>
 
+// ── Stock modal ──────────────────────────────────────────────────────
+function openStockModal(bookId, title, stock, serial) {
+  document.getElementById('stock_book_id').value = bookId;
+  document.getElementById('stock_book_title').textContent = title;
+  document.getElementById('stock_book_serial').textContent = serial;
+  document.getElementById('stock_book_qty').textContent = stock;
+  document.getElementById('stock_action_type').value = 'stock_in';
+  document.getElementById('stock_quantity').value = 1;
+  document.getElementById('stock_notes').value = '';
+  document.getElementById('stock_damage_remarks').value = '';
+  toggleDamageRemarks();
+  document.getElementById('stock_success').style.display = 'none';
+  document.getElementById('stock_error').style.display = 'none';
+  document.getElementById('stock_modal').classList.add('open');
+}
+
+function closeStockModal() {
+  document.getElementById('stock_modal').classList.remove('open');
+}
+
+document.getElementById('stock_modal')?.addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeStockModal();
+});
+
+document.getElementById('stock_action_type')?.addEventListener('change', toggleDamageRemarks);
+
+function toggleDamageRemarks() {
+  const action = document.getElementById('stock_action_type').value;
+  const wrap = document.getElementById('stock_damage_wrap');
+  const field = document.getElementById('stock_damage_remarks');
+  const required = action === 'pull_out';
+  wrap.style.display = required ? '' : 'none';
+  field.required = required;
+}
+
+async function submitStockAction() {
+  const fd  = new FormData(document.getElementById('stock_form'));
+  const suc = document.getElementById('stock_success');
+  const err = document.getElementById('stock_error');
+  suc.style.display = err.style.display = 'none';
+
+  if (fd.get('action_type') === 'pull_out' && !String(fd.get('damage_remarks') || '').trim()) {
+    err.textContent = 'Damage remarks are required for pull out.';
+    err.style.display = 'flex';
+    return;
+  }
+
+  try {
+    const r = await fetch('stock_action.php', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.success) {
+      suc.textContent = data.message;
+      suc.style.display = 'flex';
+      setTimeout(() => { closeStockModal(); location.reload(); }, 900);
+    } else {
+      err.textContent = data.message;
+      err.style.display = 'flex';
+    }
+  } catch(e) {
+    err.textContent = 'Network error: ' + e.message;
+    err.style.display = 'flex';
+  }
+}
+
 // ── Sell modal ───────────────────────────────────────────────────────
-function openSellModal(bookId, title, stock, price) {
+function openSellModal(bookId, title, stock, price, serial) {
   document.getElementById('sell_book_id').value = bookId;
   document.getElementById('sell_book_title').textContent = title;
+  document.getElementById('sell_book_serial').textContent = serial;
   document.getElementById('sell_book_price').textContent = '₱' + parseFloat(price).toFixed(2);
   document.getElementById('sell_book_stock').textContent = stock;
   document.getElementById('sell_qty').value = 1;

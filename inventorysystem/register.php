@@ -3,8 +3,7 @@ ob_start();
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'config.php';
 require_once 'auth.php';
-
-if (isLoggedIn()) { header("Location: index.php"); exit(); }
+requireAdmin();
 
 $errors = []; $success = '';
 
@@ -13,34 +12,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email           = trim($_POST['email']           ?? '');
     $password        = $_POST['password']        ?? '';
     $confirmPassword = $_POST['confirm_password'] ?? '';
-    $role            = $_POST['role']             ?? 'clerk';
     $conn   = getDBConnection();
-    $result = registerUser($name, $email, $password, $confirmPassword, $conn, $role);
+    $result = registerUser($name, $email, $password, $confirmPassword, $conn, 'clerk');
     closeDBConnection($conn);
-    if ($result['success']) $success = $result['message'];
+    if ($result['success']) $success = 'Clerk account created successfully!';
     else                    $errors  = $result['errors'];
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Register — Bookshop Inventory</title>
-  <link rel="stylesheet" href="css/style.css">
-</head>
-<body>
-<div class="auth-page">
-  <div class="auth-brand">
-    <h1>📚 BookSys</h1>
-    <div class="auth-tagline">FUTURISTIC INVENTORY SYSTEM</div>
+<?php include 'includes/header.php'; ?>
+  <div class="page-header">
+    <h1>Create Clerk Account</h1>
+    <a href="index.php" class="btn btn-ghost">← Dashboard</a>
   </div>
 
-  <div class="auth-box">
-    <h2>Create Account</h2>
+  <div class="glass-card" style="max-width:560px">
 
     <?php if ($success): ?>
-    <div class="alert alert-success"><?= htmlspecialchars($success) ?> <a href="login.php">Login →</a></div>
+    <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
     <?php endif; ?>
     <?php if (!empty($errors)): ?>
     <div class="alert alert-error"><?= implode('<br>', array_map('htmlspecialchars', $errors)) ?></div>
@@ -64,12 +52,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <label>Confirm Password <span class="req">*</span></label>
         <input type="password" name="confirm_password" required>
       </div>
-      <input type="hidden" name="role" value="clerk">
-      <button type="submit" class="btn btn-primary btn-block mt-2">Create Account</button>
+      <div class="hint-text">New users created here are always assigned the Sales Clerk role.</div>
+      <div class="form-actions mt-2">
+        <button type="submit" class="btn btn-primary">Create Clerk Account</button>
+        <a href="index.php" class="btn btn-ghost">Cancel</a>
+      </div>
     </form>
-
-    <div class="auth-footer-link">Already have an account? <a href="login.php">Login →</a></div>
   </div>
-</div>
-</body>
-</html>
+<?php include 'includes/footer.php'; ?>

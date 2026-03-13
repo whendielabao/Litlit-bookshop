@@ -96,6 +96,12 @@ function createTablesIfNotExist($conn) {
         if (!$result || $result->num_rows == 0) {
             $conn->query("ALTER TABLE `Books` ADD COLUMN `isbn` VARCHAR(20) DEFAULT NULL");
         }
+
+        // Add book serial column if it doesn't exist
+        $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'book_serial'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `Books` ADD COLUMN `book_serial` VARCHAR(30) DEFAULT NULL AFTER `book_id`");
+        }
         
         // Add description column if it doesn't exist
         $result = $conn->query("SHOW COLUMNS FROM `Books` LIKE 'description'");
@@ -112,6 +118,7 @@ function createTablesIfNotExist($conn) {
         // Create SoldHistory table if it doesn't exist
         $conn->query("CREATE TABLE IF NOT EXISTS `SoldHistory` (
             `sold_id` INTEGER NOT NULL AUTO_INCREMENT,
+            `sold_serial` VARCHAR(30) DEFAULT NULL,
             `book_id` INTEGER NOT NULL,
             `quantity` INTEGER NOT NULL,
             `price_at_sale` DECIMAL(10,2) NOT NULL,
@@ -119,6 +126,36 @@ function createTablesIfNotExist($conn) {
             `sold_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT `PK_SoldHistory` PRIMARY KEY (`sold_id`)
         )");
+
+        // Create InventoryMovements table if it doesn't exist
+        $conn->query("CREATE TABLE IF NOT EXISTS `InventoryMovements` (
+            `movement_id` INTEGER NOT NULL AUTO_INCREMENT,
+            `book_id` INTEGER NOT NULL,
+            `movement_type` ENUM('stock_in','stock_out','restock','pull_out') NOT NULL,
+            `quantity_before` INTEGER NOT NULL DEFAULT 0,
+            `quantity_change` INTEGER NOT NULL,
+            `quantity_after` INTEGER NOT NULL DEFAULT 0,
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `damage_remarks` VARCHAR(255) DEFAULT NULL,
+            `moved_by` INTEGER DEFAULT NULL,
+            `moved_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT `PK_InventoryMovements` PRIMARY KEY (`movement_id`)
+        )");
+
+        $result = $conn->query("SHOW COLUMNS FROM `InventoryMovements` LIKE 'damage_remarks'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `InventoryMovements` ADD COLUMN `damage_remarks` VARCHAR(255) DEFAULT NULL AFTER `notes`");
+        }
+
+        $result = $conn->query("SHOW COLUMNS FROM `SoldHistory` LIKE 'sold_serial'");
+        if (!$result || $result->num_rows == 0) {
+            $conn->query("ALTER TABLE `SoldHistory` ADD COLUMN `sold_serial` VARCHAR(30) DEFAULT NULL AFTER `sold_id`");
+        }
+
+        backfillSerialColumn($conn, 'Books', 'book_id', 'book_serial', 'BK');
+        backfillSerialColumn($conn, 'SoldHistory', 'sold_id', 'sold_serial', 'SL');
+        ensureUniqueIndex($conn, 'Books', 'uniq_books_book_serial', 'book_serial');
+        ensureUniqueIndex($conn, 'SoldHistory', 'uniq_soldhistory_sold_serial', 'sold_serial');
 
         // Ensure default admin account exists
         $adminHash = '$2y$10$bqDrGu3HyMsXWAqoCpYcrumDaaplDkK0Ff5VDQ4XtUR5Umsv.9lHS';
@@ -169,6 +206,7 @@ function createTablesIfNotExist($conn) {
     // Create Books table
     $conn->query("CREATE TABLE IF NOT EXISTS `Books` (
         `book_id` INTEGER NOT NULL AUTO_INCREMENT,
+        `book_serial` VARCHAR(30) DEFAULT NULL,
         `isbn` VARCHAR(20) DEFAULT NULL,
         `title` VARCHAR(255),
         `author` VARCHAR(255),
@@ -198,6 +236,7 @@ function createTablesIfNotExist($conn) {
     // Create SoldHistory table
     $conn->query("CREATE TABLE IF NOT EXISTS `SoldHistory` (
         `sold_id` INTEGER NOT NULL AUTO_INCREMENT,
+        `sold_serial` VARCHAR(30) DEFAULT NULL,
         `book_id` INTEGER NOT NULL,
         `quantity` INTEGER NOT NULL,
         `price_at_sale` DECIMAL(10,2) NOT NULL,
@@ -205,6 +244,26 @@ function createTablesIfNotExist($conn) {
         `sold_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT `PK_SoldHistory` PRIMARY KEY (`sold_id`)
     )");
+
+    // Create inventory movement table
+    $conn->query("CREATE TABLE IF NOT EXISTS `InventoryMovements` (
+        `movement_id` INTEGER NOT NULL AUTO_INCREMENT,
+        `book_id` INTEGER NOT NULL,
+        `movement_type` ENUM('stock_in','stock_out','restock','pull_out') NOT NULL,
+        `quantity_before` INTEGER NOT NULL DEFAULT 0,
+        `quantity_change` INTEGER NOT NULL,
+        `quantity_after` INTEGER NOT NULL DEFAULT 0,
+        `notes` VARCHAR(255) DEFAULT NULL,
+        `damage_remarks` VARCHAR(255) DEFAULT NULL,
+        `moved_by` INTEGER DEFAULT NULL,
+        `moved_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT `PK_InventoryMovements` PRIMARY KEY (`movement_id`)
+    )");
+
+    backfillSerialColumn($conn, 'Books', 'book_id', 'book_serial', 'BK');
+    backfillSerialColumn($conn, 'SoldHistory', 'sold_id', 'sold_serial', 'SL');
+    ensureUniqueIndex($conn, 'Books', 'uniq_books_book_serial', 'book_serial');
+    ensureUniqueIndex($conn, 'SoldHistory', 'uniq_soldhistory_sold_serial', 'sold_serial');
     
     // Add foreign key constraints (ignore if they already exist)
     $conn->query("ALTER TABLE `Sales` ADD CONSTRAINT `Users_Sales` 
@@ -238,5 +297,43 @@ function sanitizeInput($data) {
     $data = stripslashes($data);
     $data = htmlspecialchars($data);
     return $data;
+}
+
+function buildSerialNumber($prefix, $id) {
+    return $prefix . '-' . str_pad((string)$id, 6, '0', STR_PAD_LEFT);
+}
+
+function assignSerialNumber($conn, $table, $idColumn, $serialColumn, $prefix, $id) {
+    $serial = buildSerialNumber($prefix, $id);
+    $sql = "UPDATE `{$table}` SET `{$serialColumn}` = ? WHERE `{$idColumn}` = ?";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param("si", $serial, $id);
+    $ok = $stmt->execute();
+    $stmt->close();
+    return $ok ? $serial : false;
+}
+
+function backfillSerialColumn($conn, $table, $idColumn, $serialColumn, $prefix) {
+    $sql = "SELECT `{$idColumn}` FROM `{$table}` WHERE `{$serialColumn}` IS NULL OR `{$serialColumn}` = '' ORDER BY `{$idColumn}` ASC";
+    $result = $conn->query($sql);
+    if (!$result) {
+        return;
+    }
+
+    while ($row = $result->fetch_assoc()) {
+        assignSerialNumber($conn, $table, $idColumn, $serialColumn, $prefix, (int)$row[$idColumn]);
+    }
+}
+
+function ensureUniqueIndex($conn, $table, $indexName, $columnName) {
+    $result = $conn->query("SHOW INDEX FROM `{$table}` WHERE Key_name = '{$indexName}'");
+    if ($result && $result->num_rows > 0) {
+        return;
+    }
+
+    $conn->query("ALTER TABLE `{$table}` ADD UNIQUE INDEX `{$indexName}` (`{$columnName}`)");
 }
 ?>

@@ -62,7 +62,10 @@ if (!$ins->execute()) {
     closeDBConnection($conn);
     exit();
 }
+$soldId = (int)$conn->insert_id;
 $ins->close();
+
+$soldSerial = assignSerialNumber($conn, 'SoldHistory', 'sold_id', 'sold_serial', 'SL', $soldId);
 
 // Decrement stock
 $upd = $conn->prepare("UPDATE Books SET quantity = quantity - ? WHERE book_id = ?");
@@ -73,7 +76,10 @@ $upd->close();
 $total = number_format($price * $qty, 2);
 echo json_encode([
     'success' => true,
-    'message' => "Sold {$qty} × \"{$book['title']}\" (₱{$total})"
+    'message' => ($soldSerial
+        ? "Sale {$soldSerial} recorded: sold {$qty} × \"{$book['title']}\" (₱{$total})"
+        : "Sold {$qty} × \"{$book['title']}\" (₱{$total})"),
+    'sold_serial' => $soldSerial
 ]);
 
 closeDBConnection($conn);

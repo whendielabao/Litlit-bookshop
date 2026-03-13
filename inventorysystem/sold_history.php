@@ -30,8 +30,8 @@ if ($monthlyResult) {
 }
 
 // --- Sales for the selected month ---
-$sql = "SELECT sh.sold_id, sh.quantity, sh.price_at_sale, sh.sold_at,
-        b.book_id, b.title, b.author, b.isbn, b.book_cover,
+$sql = "SELECT sh.sold_id, sh.sold_serial, sh.quantity, sh.price_at_sale, sh.sold_at,
+  b.book_id, b.book_serial, b.title, b.author, b.isbn, b.book_cover,
         u.name AS sold_by_name
         FROM SoldHistory sh
         LEFT JOIN Books b ON sh.book_id = b.book_id
@@ -183,8 +183,9 @@ include 'includes/header.php';
     <thead>
       <tr>
         <th>#</th>
+        <th>Sale Serial</th>
         <th>Cover</th>
-        <th>Title / ISBN</th>
+        <th>Title / Serial</th>
         <th>Author</th>
         <th>Qty Sold</th>
         <th>Price Each</th>
@@ -198,9 +199,11 @@ include 'includes/header.php';
       <?php
         $coverSrc = soldImgSrc($s['book_cover'] ?? '');
         $sub = $s['price_at_sale'] * $s['quantity'];
+        $soldSerial = $s['sold_serial'] ?: buildSerialNumber('SL', (int)$s['sold_id']);
       ?>
       <tr>
         <td class="text-muted"><?= $i + 1 ?></td>
+        <td><span class="text-muted" style="white-space:nowrap;"><?= htmlspecialchars($soldSerial) ?></span></td>
         <td class="td-center">
           <?php if ($coverSrc): ?>
             <img src="<?= htmlspecialchars($coverSrc) ?>" alt="cover" class="thumb-book">
@@ -208,6 +211,7 @@ include 'includes/header.php';
         </td>
         <td>
           <strong><?= htmlspecialchars($s['title'] ?? 'Deleted Book') ?></strong>
+          <?php if (!empty($s['book_serial'])): ?><br><small class="text-muted">Book: <?= htmlspecialchars($s['book_serial']) ?></small><?php endif; ?>
           <?php if (!empty($s['isbn'])): ?><br><small class="text-muted"><?= htmlspecialchars($s['isbn']) ?></small><?php endif; ?>
         </td>
         <td><?= htmlspecialchars($s['author'] ?? '—') ?></td>
@@ -223,7 +227,7 @@ include 'includes/header.php';
     </tbody>
     <tfoot>
       <tr style="background:var(--bg-panel);">
-        <td colspan="6" style="text-align:right;font-weight:700;font-size:.85rem;">Month Total</td>
+        <td colspan="7" style="text-align:right;font-weight:700;font-size:.85rem;">Month Total</td>
         <td><span class="price-tag" style="font-size:.92rem;">₱<?= number_format($curMonthRevenue, 2) ?></span></td>
         <td colspan="2"></td>
       </tr>

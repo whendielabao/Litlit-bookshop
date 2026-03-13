@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         // Check for existing book with same title
-        $dupStmt = $conn->prepare("SELECT book_id, title, publisher, quantity FROM Books WHERE LOWER(title) = LOWER(?) LIMIT 1");
+        $dupStmt = $conn->prepare("SELECT book_id, book_serial, title, publisher, quantity FROM Books WHERE LOWER(title) = LOWER(?) LIMIT 1");
         $dupStmt->bind_param("s", $title);
         $dupStmt->execute();
         $existing = $dupStmt->get_result()->fetch_assoc();
@@ -79,7 +79,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updStmt->bind_param("ii", $addQty, $existing['book_id']);
                 if ($updStmt->execute()) {
                     $newQty = (int)$existing['quantity'] + $addQty;
-                    $message = "Book \"{$title}\" already exists. Added {$addQty} to stock (new qty: {$newQty}).";
+                  $bookSerial = $existing['book_serial'] ?: buildSerialNumber('BK', (int)$existing['book_id']);
+                  $message = "Book \"{$title}\" already exists under serial {$bookSerial}. Added {$addQty} to stock (new qty: {$newQty}).";
                     $messageType = 'success';
                     $_POST = [];
                 } else {
@@ -102,7 +103,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $publisher,$description,$author_bio,$final_cover,$final_author_img,$added_by);
 
             if ($stmt->execute()) {
-                $message = "Book \"{$title}\" added successfully!";
+              $bookId = (int)$conn->insert_id;
+              $bookSerial = assignSerialNumber($conn, 'Books', 'book_id', 'book_serial', 'BK', $bookId);
+              $message = $bookSerial
+                ? "Book \"{$title}\" added successfully with serial {$bookSerial}!"
+                : "Book \"{$title}\" added successfully!";
                 $messageType = 'success';
                 $_POST = [];
             } else {
